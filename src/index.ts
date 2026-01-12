@@ -2,6 +2,10 @@
 import { select, input, confirm } from "@inquirer/prompts";
 import { execSync } from "node:child_process";
 
+/**
+ * コミット種別の定義
+ *
+ */
 const TYPES = [
   { value: "feat", name: "feat - 機能追加" },
   { value: "fix", name: "fix - バグ修正" },
@@ -13,11 +17,24 @@ const TYPES = [
   { value: "perf", name: "perf - パフォーマンス改善" },
 ] as const;
 
-const args = process.argv.slice(2);
-const isDryRun = args.includes("--dry-run");
-
 type CommitType = (typeof TYPES)[number]["value"];
 
+/**
+ * CLI に渡されたコマンドライン引数
+ *
+ */
+const args = process.argv.slice(2);
+
+/**
+ * dry-run モード判定
+ *
+ */
+const isDryRun = args.includes("--dry-run");
+
+/**
+ * 現在のディレクトリが Git リポジトリかどうかを検証する
+ *
+ */
 function ensureGitRepo() {
   try {
     execSync("git rev-parse --is-inside-work-tree", { stdio: "ignore" });
@@ -27,6 +44,16 @@ function ensureGitRepo() {
   }
 }
 
+/**
+ * scope をコミットメッセージで安全に使える形式に正規化する
+ *
+ * - 前後の空白を除去する
+ * - 連続する空白はハイフン（-）に変換する
+ * - 英数字・`._-` 以外の文字は除去する
+ *
+ * @param scope - ユーザーが入力した文字列
+ * @returns 正規化された文字列
+ */
 function sanitizeScope(scope: string): string {
   return scope
     .trim()
@@ -34,29 +61,46 @@ function sanitizeScope(scope: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, "");
 }
 
+/**
+ * 生成したコミットメッセージで git commit を実行する
+ *
+ * @param message - 実行するコミットメッセージ
+ * @returns void
+ */
 function runGitCommit(message: string) {
   const quoted = JSON.stringify(message);
   execSync(`git commit -m ${quoted}`, { stdio: "inherit" });
 }
 
+/**
+ * ステージング済み(git add済み)の変更ファイル一覧を取得する
+ *
+ * @returns ステージング済みファイルのパス配列
+ */
 function getChangedFiles(): string[] {
   try {
     const staged = execSync("git diff --name-only --cached", {
       encoding: "utf-8",
     }).trim();
 
-    if (staged) return staged.split("\n");
-
-    const unstaged = execSync("git diff --name-only", {
-      encoding: "utf-8",
-    }).trim();
-
-    return unstaged ? unstaged.split("\n") : [];
+    return staged ? staged.split("\n") : [];
   } catch {
     return [];
   }
 }
 
+/**
+ * 変更ファイルのパスからscope候補を抽出する
+ *
+ * 各ファイルパスに含まれる「ディレクトリ階層」をすべてscope候補として扱う。
+ * 例:
+ *   src/AAA/BBB/CCC/modify.ts
+ *   → ["src", "AAA", "BBB", "CCC"]
+ *
+ *
+ * @param files - ステージング済みの変更ファイルパス一覧
+ * @returns 重複を除去し、アルファベット順にソートされたscope候補配列
+ */
 function extractScopeCandidates(files: string[]): string[] {
   const scopes: string[] = [];
 
@@ -72,6 +116,22 @@ function extractScopeCandidates(files: string[]): string[] {
   return Array.from(new Set(scopes)).sort();
 }
 
+/**
+ * scopeをユーザーに選択・入力させるためのプロンプト
+ *
+ * 変更ファイルから抽出したscope候補数に応じて、
+ * 入力方法を切り替えることでユーザーの負担を最小化する。
+ *
+ * - 候補が 0 件:
+ *   → 自由入力のみ（文脈が存在しないため）
+ * - 候補が 1 件:
+ *   → suggestedとして提示し、Enterでそのまま採用できる
+ * - 候補が複数件:
+ *   → selectで候補一覧を表示し、必要であればcustom入力も可能
+ *
+ * @param files - ステージング済みの変更ファイルパス一覧
+ * @returns 選択または入力されたscope文字列（未指定の場合は空文字）
+ */
 async function promptScope(files: string[]): Promise<string> {
   const candidates = extractScopeCandidates(files);
 
@@ -86,7 +146,6 @@ async function promptScope(files: string[]): Promise<string> {
     });
   }
 
-  // 候補複数 → select
   const picked = await select<string>({
     message: "Scope を選択(または custom)",
     choices: [
@@ -103,21 +162,36 @@ async function promptScope(files: string[]): Promise<string> {
   return picked;
 }
 
+/**
+ * ファイルパスからモジュール名を取得する
+ *
+ * stamp では、変更ファイル一覧を分かりやすく表示するために
+ * 「トップレベルディレクトリ」をモジュールとして扱う。
+ *
+ * @param filePath - 変更されたファイルのパス
+ * @returns モジュール名（トップレベルディレクトリ）
+ */
 function getModuleKey(filePath: string): string {
   const normalized = filePath.replaceAll("\\", "/");
   const parts = normalized.split("/").filter(Boolean);
 
   if (parts.length === 0) return "(unknown)";
 
-  // monorepo よくあるやつ
-  if ((parts[0] === "packages" || parts[0] === "apps") && parts.length >= 2) {
-    return `${parts[0]}/${parts[1]}`;
-  }
-
-  // 基本はトップ階層
   return parts[0];
 }
 
+/**
+ * 変更ファイルをモジュール単位でグルーピングする
+ *
+ * getModuleKey()で判定したモジュール名をキーとして、
+ * 各モジュールに属するファイル一覧をMap形式でまとめる。
+ *
+ * @param files - ステージング済みの変更ファイルパス一覧
+ * @returns
+ *   モジュール名をキー、ファイルパス配列を値とする Map
+ *   - key: モジュール名
+ *   - value: そのモジュールに属するファイル一覧
+ */
 function groupFilesByModule(files: string[]): Map<string, string[]> {
   const map = new Map<string, string[]>();
 
@@ -128,7 +202,6 @@ function groupFilesByModule(files: string[]): Map<string, string[]> {
     map.set(key, arr);
   }
 
-  // 各モジュール内をソート
   for (const [k, arr] of map) {
     map.set(k, arr.slice().sort());
   }
@@ -136,6 +209,12 @@ function groupFilesByModule(files: string[]): Map<string, string[]> {
   return map;
 }
 
+/**
+ * 変更ファイルをモジュール単位で標準出力に表示する
+ *
+ * @param files - ステージング済みの変更ファイルパス一覧
+ * @returns void
+ */
 function printChangedFilesByModule(files: string[]) {
   if (files.length === 0) {
     console.log("Changed files: none");
@@ -144,7 +223,6 @@ function printChangedFilesByModule(files: string[]) {
 
   const grouped = groupFilesByModule(files);
 
-  // モジュール名をソートして出す
   const keys = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
 
   console.log("\nChanged files (by module):");
