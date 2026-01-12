@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { confirm } from "@inquirer/prompts";
-import { ensureGitRepo, getChangedFiles, runGitCommit } from "./cli/git";
-import { promptDescription, promptScope, promptType } from "./cli/prompts";
-import { printChangedFilesByModule } from "./cli/printer";
+import { ensureGitRepo, getChangedFiles, runGitCommit } from "./lib/git";
+import { promptDescription, promptScope, promptType } from "./lib/prompts";
+import { printChangedFilesByModule } from "./lib/printer";
 
 /**
  * CLI に渡されたコマンドライン引数
