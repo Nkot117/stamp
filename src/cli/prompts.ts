@@ -21,7 +21,7 @@ type CommitType = (typeof TYPES)[number]["value"];
  * Type を選択させるためのプロンプト
  *
  */
-async function pronptType(): Promise<CommitType> {
+async function promptType(): Promise<CommitType> {
   return await select<CommitType>({
     message: "Type を選択",
     choices: TYPES.map((t) => ({ value: t.value, name: t.name })),
@@ -82,7 +82,7 @@ async function promptDescription(): Promise<string> {
   return await input({
     message: "説明（必須）",
     validate: (v) => (v.trim() ? true : "説明は必須です"),
-  });
+  }).then((v) => v.trim());
 }
 
 /**
@@ -111,4 +111,4 @@ function extractScopeCandidates(files: string[]): string[] {
   return Array.from(new Set(scopes)).sort();
 }
 
-export { pronptType, promptScope, promptDescription };
+export { promptType, promptScope, promptDescription };
