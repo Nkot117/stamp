@@ -10,11 +10,11 @@ in the `Type(Scope): description` format.
 
 ## Features
 
-- Interactive CLI for commit messages
-- Enforces `Type(Scope): description` format
-- Free-form scope (optional)
-- Prevents empty commit messages
-- Works with any Git repository
+- Guided commit message creation
+- Conventional `Type(Scope): description` format
+- Scope suggestions based on staged files
+- Preview changes before committing
+- Dry-run support
 
 ---
 
@@ -37,29 +37,68 @@ in the `Type(Scope): description` format.
 
 Run the following command inside a Git repository:
 
-    stamp
+```bash
+stamp
+```
 
 You will be prompted to select:
 
 1. Type (e.g. feat, fix)
-2. Scope (optional)
+2. Scope (optional, suggested from file paths)
 3. Description (required)
+
+Before committing, stamp shows the staged files grouped by module:
+
+```text
+Changed files (by module):
+
+[src] (2)
+- src/api/user.ts
+- src/api/auth.ts
+```
 
 Example commit message:
 
-    feat(core): add input validation for login form
+```text
+feat(api): add user authentication
+```
+
+---
+
+## Dry Run
+
+To preview the commit message without executing `git commit`:
+
+```bash
+stamp --dry-run
+```
 
 ---
 
 ## Installation (Local Development)
 
-    git clone https://github.com/Nkot117/stamp.git
-    cd stamp
-    npm install
-    npm run build
-    npm link
+```bash
+git clone https://github.com/Nkot117/stamp.git
+cd stamp
+npm install
+npm run build
+npm link
+```
 
 After that, you can run `stamp` from anywhere.
+
+---
+
+## Project Structure
+
+```text
+src/
+  index.ts        # CLI entry point
+  lib/
+    git.ts        # Git operations
+    prompts.ts    # Interactive prompts
+    printer.ts    # Output formatting
+```
 
 ---
 
@@ -72,7 +111,7 @@ stamp helps you:
 
 - avoid vague messages like "fix bug"
 - keep commit history clean
-- focus on what you changed, not how to format it
+- focus on _what_ you changed, not _how_ to format it
 
 ---
 
