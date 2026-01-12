@@ -1,0 +1,28 @@
+{
+  "name": "stamp-commit",
+  "version": "0.1.0",
+  "description": "A CLI tool to create Git commit messages with a proper format",
+  "type": "module",
+  "bin": {
+    "stamp": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "git",
+    "commit",
+    "cli",
+    "conventional-commits"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@inquirer/prompts": "^8.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
