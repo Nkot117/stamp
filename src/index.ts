@@ -13,6 +13,9 @@ const TYPES = [
   { value: "perf", name: "perf - パフォーマンス改善" },
 ] as const;
 
+const args = process.argv.slice(2);
+const isDryRun = args.includes("--dry-run");
+
 type CommitType = (typeof TYPES)[number]["value"];
 
 function ensureGitRepo() {
@@ -36,21 +39,142 @@ function runGitCommit(message: string) {
   execSync(`git commit -m ${quoted}`, { stdio: "inherit" });
 }
 
+function getChangedFiles(): string[] {
+  try {
+    const staged = execSync("git diff --name-only --cached", {
+      encoding: "utf-8",
+    }).trim();
+
+    if (staged) return staged.split("\n");
+
+    const unstaged = execSync("git diff --name-only", {
+      encoding: "utf-8",
+    }).trim();
+
+    return unstaged ? unstaged.split("\n") : [];
+  } catch {
+    return [];
+  }
+}
+
+function extractScopeCandidates(files: string[]): string[] {
+  const scopes: string[] = [];
+
+  for (const file of files) {
+    const normalized = file.replaceAll("\\", "/");
+    const parts = normalized.split("/").filter(Boolean);
+    const dirs = parts.slice(0, -1);
+
+    for (const dir of dirs) {
+      scopes.push(dir);
+    }
+  }
+  return Array.from(new Set(scopes)).sort();
+}
+
+async function promptScope(files: string[]): Promise<string> {
+  const candidates = extractScopeCandidates(files);
+
+  if (candidates.length === 0) {
+    return await input({ message: "Scope(任意)", default: "" });
+  }
+
+  if (candidates.length === 1) {
+    return await input({
+      message: `Scope(任意) [suggested: ${candidates[0]}]`,
+      default: "",
+    });
+  }
+
+  // 候補複数 → select
+  const picked = await select<string>({
+    message: "Scope を選択(または custom)",
+    choices: [
+      ...candidates.map((c) => ({ value: c, name: c })),
+      { value: "", name: "(none)" },
+      { value: "__custom__", name: "(custom)" },
+    ],
+  });
+
+  if (picked === "__custom__") {
+    return await input({ message: "Scope(任意・自由入力)", default: "" });
+  }
+
+  return picked;
+}
+
+function getModuleKey(filePath: string): string {
+  const normalized = filePath.replaceAll("\\", "/");
+  const parts = normalized.split("/").filter(Boolean);
+
+  if (parts.length === 0) return "(unknown)";
+
+  // monorepo よくあるやつ
+  if ((parts[0] === "packages" || parts[0] === "apps") && parts.length >= 2) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+
+  // 基本はトップ階層
+  return parts[0];
+}
+
+function groupFilesByModule(files: string[]): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+
+  for (const f of files) {
+    const key = getModuleKey(f);
+    const arr = map.get(key) ?? [];
+    arr.push(f);
+    map.set(key, arr);
+  }
+
+  // 各モジュール内をソート
+  for (const [k, arr] of map) {
+    map.set(k, arr.slice().sort());
+  }
+
+  return map;
+}
+
+function printChangedFilesByModule(files: string[]) {
+  if (files.length === 0) {
+    console.log("Changed files: none");
+    return;
+  }
+
+  const grouped = groupFilesByModule(files);
+
+  // モジュール名をソートして出す
+  const keys = Array.from(grouped.keys()).sort((a, b) => a.localeCompare(b));
+
+  console.log("\nChanged files (by module):");
+  for (const key of keys) {
+    const list = grouped.get(key)!;
+    console.log(`\n[${key}] (${list.length})`);
+    for (const f of list) {
+      console.log(`- ${f}`);
+    }
+  }
+}
+
 async function main() {
-  ensureGitRepo();
+  if (!isDryRun) {
+    ensureGitRepo();
+  }
 
   const type = await select<CommitType>({
     message: "Type を選択",
     choices: TYPES.map((t) => ({ value: t.value, name: t.name })),
   });
 
-  const scopeRaw = await input({
-    message: "Scope（任意）",
-    default: "",
-  });
+  const files = getChangedFiles();
+  printChangedFilesByModule(files);
+
+  const scopeRaw = await promptScope(files);
+  console.log("Selected scope:", scopeRaw || "none");
 
   const description = await input({
-    message: "説明（必須）",
+    message: "説明(必須)",
     validate: (v) => (v.trim() ? true : "説明は必須です"),
   });
 
@@ -62,12 +186,16 @@ async function main() {
   console.log("\ncommit message:");
   console.log(message);
 
-  const ok = await confirm({
-    message: "このメッセージで git commit しますか？",
-    default: true,
-  });
+  if (isDryRun) {
+    console.log("\n[dry-run] commit was not executed.");
+  } else {
+    const ok = await confirm({
+      message: "このメッセージで git commit しますか？",
+      default: true,
+    });
 
-  if (ok) runGitCommit(message);
+    if (ok) runGitCommit(message);
+  }
 }
 
 main().catch((e) => {
