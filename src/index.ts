@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { select, input, confirm } from "@inquirer/prompts";
 import { execSync } from "node:child_process";
+import { ensureGitRepo, getChangedFiles, runGitCommit } from "./cli/git";
 
 /**
  * コミット種別の定義
@@ -32,19 +33,6 @@ const args = process.argv.slice(2);
 const isDryRun = args.includes("--dry-run");
 
 /**
- * 現在のディレクトリが Git リポジトリかどうかを検証する
- *
- */
-function ensureGitRepo() {
-  try {
-    execSync("git rev-parse --is-inside-work-tree", { stdio: "ignore" });
-  } catch {
-    console.error("stamp: not a git repository");
-    process.exit(1);
-  }
-}
-
-/**
  * scope をコミットメッセージで安全に使える形式に正規化する
  *
  * - 前後の空白を除去する
@@ -59,34 +47,6 @@ function sanitizeScope(scope: string): string {
     .trim()
     .replace(/\s+/g, "-")
     .replace(/[^a-zA-Z0-9._-]/g, "");
-}
-
-/**
- * 生成したコミットメッセージで git commit を実行する
- *
- * @param message - 実行するコミットメッセージ
- * @returns void
- */
-function runGitCommit(message: string) {
-  const quoted = JSON.stringify(message);
-  execSync(`git commit -m ${quoted}`, { stdio: "inherit" });
-}
-
-/**
- * ステージング済み(git add済み)の変更ファイル一覧を取得する
- *
- * @returns ステージング済みファイルのパス配列
- */
-function getChangedFiles(): string[] {
-  try {
-    const staged = execSync("git diff --name-only --cached", {
-      encoding: "utf-8",
-    }).trim();
-
-    return staged ? staged.split("\n") : [];
-  } catch {
-    return [];
-  }
 }
 
 /**
